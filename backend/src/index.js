@@ -7,6 +7,7 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { prisma } from "./services/prisma.js";
 import { hashPassword } from "./utils/password.js";
+import { getPreapproval } from "./services/mercadopago.js";
 import { authRouter } from "./routes/auth.js";
 import { clubsRouter } from "./routes/clubs.js";
 import { sociosRouter } from "./routes/socios.js";
@@ -83,6 +84,43 @@ ensureSuperAdmin()
     app.listen(port, () => {
       console.log(`API running on :${port}`);
     });
+
+    const pollingEnabled = process.env.MP_POLLING_ENABLED === "true";
+    if (pollingEnabled) {
+      const intervalMs = Number(process.env.MP_POLLING_INTERVAL_MS || 300000);
+      setInterval(async () => {
+        try {
+          const pendings = await prisma.assinaturaSaas.findMany({
+            where: { status: "PAST_DUE", paymentProvider: "mercadopago" },
+          });
+          for (const sub of pendings) {
+            if (!sub.externalId) continue;
+            const preapproval = await getPreapproval(sub.externalId);
+            const statusMap = {
+              authorized: "ACTIVE",
+              pending: "PAST_DUE",
+              paused: "CANCELED",
+              cancelled: "CANCELED",
+            };
+            const status = statusMap[preapproval.status] || "PAST_DUE";
+            const currentPeriodEnd = preapproval.next_payment_date
+              ? new Date(preapproval.next_payment_date)
+              : new Date();
+
+            await prisma.assinaturaSaas.update({
+              where: { clubId: sub.clubId },
+              data: { status, currentPeriodEnd },
+            });
+            await prisma.club.update({
+              where: { id: sub.clubId },
+              data: { status: status === "ACTIVE" ? "ACTIVE" : "BLOCKED" },
+            });
+          }
+        } catch (err) {
+          console.error("Mercado Pago polling error", err);
+        }
+      }, intervalMs);
+    }
   })
   .catch((err) => {
     console.error("Failed to bootstrap super admin", err);
