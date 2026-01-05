@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  CLUB_ADMIN
+  CASHIER
+  WAITER
+}
+
+enum ClubStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum SocioStatus {
+  ACTIVE
+  INADIMPLENTE
+}
+
+enum ComandaStatus {
+  OPEN
+  CLOSED
+}
+
+enum ComandaType {
+  SOCIO
+  VISITANTE
+}
+
+enum OrderStatus {
+  RECEIVED
+  PREPARING
+  DELIVERED
+}
+
+enum PaymentMethod {
+  PIX
+  CARD
+  CASH
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  FAILED
+}
+
+enum PaymentType {
+  ENTRY
+  CONSUMPTION
+  BOTH
+}
+
+enum EntryType {
+  INDIVIDUAL
+  CASAL
+  GRUPO
+}
+
+model Club {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  status      ClubStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  socios      Socio[]
+  planosSocio PlanoSocio[]
+  dependentes Dependente[]
+  comandas    Comanda[]
+  orders      Order[]
+  orderItems  OrderItem[]
+  pagamentos  Pagamento[]
+  categorias  Categoria[]
+  produtos    Produto[]
+  assinatura  AssinaturaSaas?
+}
+
+model PlanoSaas {
+  id        String   @id @default(cuid())
+  name      String
+  interval  String
+  price     Decimal  @db.Decimal(10,2)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  assinaturas AssinaturaSaas[]
+}
+
+model AssinaturaSaas {
+  id                String   @id @default(cuid())
+  clubId            String   @unique
+  planoSaasId       String
+  status            SubscriptionStatus @default(ACTIVE)
+  currentPeriodEnd  DateTime
+  paymentProvider   String
+  externalId        String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  club       Club     @relation(fields: [clubId], references: [id])
+  planoSaas  PlanoSaas @relation(fields: [planoSaasId], references: [id])
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clubId    String?
+  name      String
+  email     String   @unique
+  password  String
+  role      Role
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club      Club?    @relation(fields: [clubId], references: [id])
+}
+
+model PlanoSocio {
+  id              String   @id @default(cuid())
+  clubId          String
+  name            String
+  monthlyPrice    Decimal  @db.Decimal(10,2)
+  maxPeople       Int
+  discountPercent Int?     @default(0)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  club   Club   @relation(fields: [clubId], references: [id])
+  socios Socio[]
+
+  @@unique([clubId, name])
+}
+
+model Socio {
+  id            String   @id @default(cuid())
+  clubId        String
+  planoSocioId  String
+  name          String
+  cpf           String
+  status        SocioStatus @default(ACTIVE)
+  dueDate       DateTime
+  qrCode        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  club       Club      @relation(fields: [clubId], references: [id])
+  planoSocio PlanoSocio @relation(fields: [planoSocioId], references: [id])
+  dependentes Dependente[]
+  comandas   Comanda[]
+
+  @@unique([clubId, cpf])
+}
+
+model Dependente {
+  id        String   @id @default(cuid())
+  clubId    String
+  socioId   String
+  name      String
+  document  String?
+  createdAt DateTime @default(now())
+
+  club   Club  @relation(fields: [clubId], references: [id])
+  socio  Socio @relation(fields: [socioId], references: [id])
+}
+
+model Comanda {
+  id           String   @id @default(cuid())
+  clubId       String
+  code         String
+  type         ComandaType
+  socioId      String?
+  visitorName  String?
+  visitorCount Int?
+  entryType    EntryType?
+  entryValue   Decimal? @db.Decimal(10,2)
+  status       ComandaStatus @default(OPEN)
+  qrCode       String?
+  openedAt     DateTime @default(now())
+  closedAt     DateTime?
+
+  club     Club   @relation(fields: [clubId], references: [id])
+  socio    Socio? @relation(fields: [socioId], references: [id])
+  orders   Order[]
+  pagamentos Pagamento[]
+
+  @@unique([clubId, code])
+}
+
+model Order {
+  id        String   @id @default(cuid())
+  clubId    String
+  comandaId String
+  status    OrderStatus @default(RECEIVED)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  club   Club    @relation(fields: [clubId], references: [id])
+  comanda Comanda @relation(fields: [comandaId], references: [id])
+  items  OrderItem[]
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  clubId    String
+  orderId   String
+  produtoId String
+  quantity  Int
+  price     Decimal @db.Decimal(10,2)
+
+  club    Club    @relation(fields: [clubId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+  produto Produto @relation(fields: [produtoId], references: [id])
+}
+
+model Pagamento {
+  id        String   @id @default(cuid())
+  clubId    String
+  comandaId String
+  amount    Decimal @db.Decimal(10,2)
+  method    PaymentMethod
+  status    PaymentStatus @default(PAID)
+  type      PaymentType
+  createdAt DateTime @default(now())
+
+  club    Club    @relation(fields: [clubId], references: [id])
+  comanda Comanda @relation(fields: [comandaId], references: [id])
+}
+
+model Categoria {
+  id        String   @id @default(cuid())
+  clubId    String
+  name      String
+  active    Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  club     Club     @relation(fields: [clubId], references: [id])
+  produtos Produto[]
+
+  @@unique([clubId, name])
+}
+
+model Produto {
+  id          String   @id @default(cuid())
+  clubId      String
+  categoriaId String
+  name        String
+  description String?
+  price       Decimal @db.Decimal(10,2)
+  active      Boolean @default(true)
+  photoUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club      Club     @relation(fields: [clubId], references: [id])
+  categoria Categoria @relation(fields: [categoriaId], references: [id])
+  orderItems OrderItem[]
+}
