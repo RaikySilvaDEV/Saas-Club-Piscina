@@ -7,8 +7,12 @@ export const webhookRouter = Router();
 webhookRouter.post("/payments", async (req, res) => {
   const signature = req.headers["x-webhook-secret"];
   const secret = process.env.PAYMENTS_WEBHOOK_SECRET;
-  if (secret && signature !== secret) {
+  const allowNoSecret = process.env.WEBHOOK_ALLOW_NO_SECRET === "true";
+  if (secret && signature && signature !== secret) {
     return res.status(401).json({ error: "invalid_signature" });
+  }
+  if (secret && !signature && !allowNoSecret) {
+    return res.status(401).json({ error: "missing_signature" });
   }
 
   const body = req.body || {};

@@ -1,6 +1,7 @@
 node_modules
 .env
 .env.*
+!.env.example
 prisma/migrations
 frontend/dist
 backend/dist
